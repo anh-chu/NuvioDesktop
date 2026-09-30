@@ -179,6 +179,24 @@ std::string toUtf8(const std::wstring &value) {
     return result;
 }
 
+// Reads a UTF-16 environment variable as UTF-8. Returns an empty string when the variable is
+// unset, empty, or does not fit the fixed buffer.
+std::string getEnvironmentVariableUtf8(const wchar_t *name) {
+    wchar_t buffer[32768] = {};
+    DWORD capacity = (DWORD)(sizeof(buffer) / sizeof(buffer[0]));
+    DWORD length = GetEnvironmentVariableW(name, buffer, capacity);
+    if (length == 0 || length >= capacity) return std::string();
+    return toUtf8(std::wstring(buffer, buffer + length));
+}
+
+// The bridge has no log sink of its own, so diagnostics go to the debugger output stream
+// (DebugView, Visual Studio, WinDbg). Stock installs never trip any of these calls.
+void debugLog(const std::string &message) {
+    std::wstring wide = toWide(message);
+    if (wide.empty()) return;
+    OutputDebugStringW((L"[NuvioPlayerBridge] " + wide + L"\n").c_str());
+}
+
 std::string jstringToUtf8(JNIEnv *env, jstring value) {
     if (!value) return std::string();
     jsize length = env->GetStringLength(value);
@@ -593,6 +611,27 @@ MpvApi &mpvApi() {
     static MpvApi api;
     api.ensureLoaded();
     return api;
+}
+
+// One-shot: report which libmpv NUVIO_LIBMPV_PATH actually resolved to. Stock installs never set
+// it, so they log nothing.
+void logLoadedMpvLibraryOnce() {
+    static std::once_flag once;
+    std::call_once(once, []() {
+        std::string configured = getEnvironmentVariableUtf8(L"NUVIO_LIBMPV_PATH");
+        if (configured.empty()) return;
+        std::string loaded = configured;
+        MpvApi &api = mpvApi();
+        if (api.library) {
+            wchar_t buffer[32768] = {};
+            DWORD capacity = (DWORD)(sizeof(buffer) / sizeof(buffer[0]));
+            DWORD length = GetModuleFileNameW(api.library, buffer, capacity);
+            if (length > 0 && length < capacity) {
+                loaded = toUtf8(std::wstring(buffer, buffer + length));
+            }
+        }
+        debugLog("NUVIO_LIBMPV_PATH=" + configured + "; loaded=" + loaded);
+    });
 }
 
 class WindowsMpvWebPlayer;
@@ -1614,6 +1653,7 @@ private:
         bool nvidiaRtxSuperResolutionEnabled
     ) {
         MpvApi &api = mpvApi();
+        logLoadedMpvLibraryOnce();
         {
             std::lock_guard<std::mutex> lock(mpvMutex);
             mpv = api.create();
@@ -1622,7 +1662,7 @@ private:
             }
             initialStartSeconds = initialPositionMs > 0 ? (double)initialPositionMs / 1000.0 : 0.0;
 
-            setMpvOptionStringLocked("config", "no");
+            applyMpvConfigOptionsLocked();
             setMpvOptionStringLocked("osc", "no");
             setMpvOptionStringLocked("input-default-bindings", "yes");
             setMpvOptionStringLocked("input-vo-keyboard", "no");
@@ -1938,6 +1978,43 @@ private:
 
     void setMpvOptionStringLocked(const char *name, const char *value) {
         (void)mpvApi().setOptionString(mpv, name, value);
+    }
+
+    // Like setMpvOptionStringLocked, but surfaces mpv's error instead of swallowing it. Used where
+    // failing silently would be worse than failing loudly.
+    void setMpvOptionStringCheckedLocked(const char *name, const char *value) {
+        MpvApi &api = mpvApi();
+        int result = api.setOptionString(mpv, name, value);
+        if (result < 0) {
+            throw std::runtime_error(
+                std::string("mpv option '") + name + "' failed: " + api.errorText(result));
+        }
+    }
+
+    // NUVIO_MPV_CONFIG_DIR is an opt-in power-user escape hatch (#738). When it is set, mpv reads
+    // mpv.conf / input.conf / scripts / shaders from that directory instead of starting from a
+    // blank config. When it is unset, config loading stays disabled exactly as before.
+    //
+    // Ordering matters: mpv parses those files inside mpv_initialize(), which runs after every
+    // option set in startMpv(), so any option named in the user's config wins over Nuvio's
+    // defaults. That is the point of the hatch, but it does mean a config can also change options
+    // Nuvio relies on (hwdec, gpu-api, vf, volume-max, cache-secs, ...).
+    void applyMpvConfigOptionsLocked() {
+        std::string configDir = getEnvironmentVariableUtf8(L"NUVIO_MPV_CONFIG_DIR");
+        if (configDir.empty()) {
+            setMpvOptionStringLocked("config", "no");
+            return;
+        }
+
+        DWORD attributes = GetFileAttributesW(toWide(configDir).c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+            throw std::runtime_error(
+                "NUVIO_MPV_CONFIG_DIR does not point at an existing directory: " + configDir);
+        }
+
+        setMpvOptionStringCheckedLocked("config-dir", configDir.c_str());
+        setMpvOptionStringCheckedLocked("config", "yes");
+        debugLog("mpv config enabled; config-dir=" + configDir);
     }
 
     double doubleProperty(const char *name, double fallback) {

@@ -1,0 +1,154 @@
+name: Build Windows player bridge
+
+run-name: player_bridge.dll (${{ inputs.ref }})
+
+# Builds composeApp/build/native/windows/player_bridge.dll -- the small C++
+# companion DLL for Nuvio's Windows internal player -- and uploads it as an
+# artifact.
+#
+# The normal build is:
+#     gradlew :composeApp:buildWindowsPlayerBridge
+# and it needs a Windows host, MSVC (discovered via vswhere) and the
+# Microsoft.Web.WebView2 SDK. This workflow reproduces those conditions on a
+# hosted runner so the DLL can be built and tested without a local Windows
+# toolchain. It compiles the bridge only: it does not assemble, package, sign
+# or release Nuvio, and it needs no repository secrets.
+#
+# Usage -- note the default-branch requirement:
+#   GitHub shows the "Run workflow" button only when this file exists on the
+#   repository's default branch (Dev), and the API/CLI can only dispatch a
+#   workflow that has already run at least once. So on a fork you must first get
+#   THIS FILE onto the fork's Dev branch (commit just this file; the C++ patch
+#   does not have to be on Dev), then run it from the Actions tab with "ref" set
+#   to your patched branch. Actions must also be enabled in the fork's Actions
+#   tab. Once the PR merges upstream, this all works with no extra steps.
+# The run summary prints the SHA-256 of the DLL -- Nuvio's player-bridge cache
+# directory is named after it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag or commit to build"
+        required: true
+        default: "Dev"
+      webview2_version:
+        description: "Microsoft.Web.WebView2 NuGet package version"
+        required: true
+        default: "1.0.4258.31"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: player_bridge.dll
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out the requested revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          # The bridge compiles against the WebView2 and JNI headers only -- libmpv
+          # is loaded at runtime. Skipping LFS avoids pulling ~115 MB of bundled
+          # Windows runtime that this task does not use.
+          lfs: false
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # Gradle 9, Kotlin 2.4 and AGP 9 all run on 21, which is also the JDK
+          # Android Studio bundles for this project.
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install the WebView2 SDK
+        shell: pwsh
+        env:
+          NUVIO_WEBVIEW2_VERSION: ${{ inputs.webview2_version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:NUVIO_WEBVIEW2_VERSION.Trim()
+          $nupkg = Join-Path $env:RUNNER_TEMP "microsoft.web.webview2.$version.nupkg"
+          $root = Join-Path $env:RUNNER_TEMP "webview2\$version"
+          $url = "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/$version/microsoft.web.webview2.$version.nupkg"
+          Write-Host "Downloading $url"
+          Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $nupkg
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::ExtractToDirectory($nupkg, $root)
+          # Fail early if the package layout ever changes: build.gradle.kts reads
+          # <root>/build/native/include and <root>/build/native/x64.
+          foreach ($rel in 'build\native\include\WebView2.h', 'build\native\x64\WebView2Loader.dll.lib') {
+            if (-not (Test-Path -LiteralPath (Join-Path $root $rel))) {
+              throw "Microsoft.Web.WebView2 $version does not contain $rel. Pick a different webview2_version."
+            }
+          }
+          "NUVIO_WEBVIEW2_DIR=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "WebView2 SDK extracted to $root"
+
+      - name: Show installed Android SDK platforms
+        shell: pwsh
+        run: |
+          # :composeApp applies the Android KMP plugin, so AGP resolves ANDROID_HOME
+          # during configuration even though no Android task runs. Informational only.
+          $platforms = Join-Path $env:ANDROID_HOME 'platforms'
+          if (Test-Path $platforms) {
+            Get-ChildItem $platforms | ForEach-Object { Write-Host $_.Name }
+          } else {
+            Write-Host "No platforms directory at $platforms"
+          }
+
+      - name: Build the player bridge
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $gradleArgs = @(
+            '--stacktrace'
+            '--no-configuration-cache'
+            ':composeApp:buildWindowsPlayerBridge'
+            "-Pnuvio.webview2.dir=$env:NUVIO_WEBVIEW2_DIR"
+          )
+          & .\gradlew.bat @gradleArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Summarise the DLL
+        shell: pwsh
+        env:
+          NUVIO_REF: ${{ inputs.ref }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dll = 'composeApp\build\native\windows\player_bridge.dll'
+          if (-not (Test-Path -LiteralPath $dll)) { throw "Expected output missing: $dll" }
+          $hash = (Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash.ToLower()
+          $size = (Get-Item -LiteralPath $dll).Length
+          # Single-quoted: a double-quoted string would eat the backticks. Escape
+          # '|' too -- it is legal in a git ref name and would split the cell.
+          $refText = $env:NUVIO_REF -replace '\|', '\|'
+          $lines = @(
+            '### player_bridge.dll'
+            ''
+            '| | |'
+            '| --- | --- |'
+            ('| ref | `{0}` |' -f $refText)
+            ('| size | {0} bytes |' -f $size)
+            ('| sha256 | `{0}` |' -f $hash)
+            ''
+            'Store this DLL as `composeApp/build/native/windows/player_bridge.dll`.'
+          )
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ($lines -join "`n")
+          $lines | ForEach-Object { Write-Host $_ }
+
+      - name: Upload player_bridge.dll
+        uses: actions/upload-artifact@v4
+        with:
+          name: player_bridge
+          path: |
+            composeApp/build/native/windows/player_bridge.dll
+            composeApp/build/native/windows/player_bridge.lib
+            composeApp/build/native/windows/player_bridge.pdb
+          if-no-files-found: error

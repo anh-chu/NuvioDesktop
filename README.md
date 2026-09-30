@@ -76,6 +76,25 @@ Platform-specific packaging:
 ./gradlew :composeApp:packageReleaseDeb
 ```
 
+### Advanced: custom mpv configuration (Windows)
+
+The Windows player bridge accepts two environment variables, both read when playback starts and
+therefore requiring a full restart of Nuvio:
+
+| Variable | Effect |
+| --- | --- |
+| `NUVIO_LIBMPV_PATH` | Load a replacement `libmpv-2.dll` instead of the bundled copy. |
+| `NUVIO_MPV_CONFIG_DIR` | Load `mpv.conf`, `input.conf`, `scripts/` and `shaders/` from an mpv configuration directory. Unset by default, which keeps config loading disabled exactly as before. |
+
+This is an unsupported, opt-in power-user escape hatch — it exists to unlock native filter chains,
+custom shaders and custom `libmpv` builds. There is no settings UI, and options named in your
+`mpv.conf` override Nuvio's own playback defaults.
+
+See [`composeApp/src/desktopMain/native/windows/README.md`](composeApp/src/desktopMain/native/windows/README.md)
+for the full reference: precedence rules, known conflicts, current limitations, and how to rebuild
+just `player_bridge.dll` — including a hosted GitHub Actions workflow for contributors without a
+local Windows toolchain.
+
 ## Project Structure
 
 - `composeApp/` contains the app code.
