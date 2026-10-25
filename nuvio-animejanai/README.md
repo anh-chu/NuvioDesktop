@@ -20,8 +20,8 @@ Nuvio release.
 | --- | --- |
 | OS | Windows 10/11, x64 |
 | GPU | NVIDIA RTX (TensorRT). Other GPUs are not covered by this installer. |
-| App | Nuvio Desktop 1.1.27 or newer |
-| Disk | ~2.5 GB (AnimeJaNai models, TensorRT runtime, build-time caches) |
+| App | Nuvio Desktop 0.1.27-alpha or newer (verified on 0.1.27 and 0.1.32) |
+| Disk | ~1.6 GB, of which ~0.8 GB is a download cache that re-runs reuse (safe to delete) |
 | Network | ~600 MB download on first install |
 
 Everything installs under `%LOCALAPPDATA%`. **No administrator rights, no files
@@ -37,8 +37,9 @@ Open PowerShell and run:
 $d = "$env:TEMP\nuvio-animejanai"
 New-Item -ItemType Directory -Force $d | Out-Null
 $b = "https://raw.githubusercontent.com/anh-chu/NuvioDesktop/Dev/nuvio-animejanai"
-iwr "$b/install.ps1" -OutFile "$d\install.ps1"
-iwr "$b/aji-slot.ps1" -OutFile "$d\aji-slot.ps1"
+foreach ($f in 'install.ps1', 'aji-slot.ps1', 'uninstall.ps1') {
+    iwr "$b/$f" -OutFile "$d\$f"
+}
 powershell -ExecutionPolicy Bypass -File "$d\install.ps1"
 ```
 
@@ -160,15 +161,18 @@ instead and they will be carried over.
 
 ## Uninstall
 
+The installer copies `uninstall.ps1` next to the install, so the folder can be
+removed even after the download folder is gone:
+
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\NuvioAnimeJaNai\uninstall.ps1"
 ```
+
+(From a clone, `.\install.ps1 -Uninstall` does the same thing.)
 
 This removes the three environment variables and the
 `%LOCALAPPDATA%\NuvioAnimeJaNai` folder. Nuvio itself is never modified, so that
 is all it takes to get the stock player back. Restart Nuvio afterwards.
-
-`uninstall.ps1` does the same thing and can be run directly.
 
 ---
 

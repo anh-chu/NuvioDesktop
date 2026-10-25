@@ -620,14 +620,16 @@ Install-ScriptsAndShaders -OverlayDir $overlayExtract
 Write-MpvConfig
 Write-Ok "config dir: $ConfigDir"
 
-# Keep the slot switcher next to the install, so it still works after the
+# Keep the helper scripts next to the install, so they still work after the
 # folder the installer was run from is gone.
 if ($PSScriptRoot) {
-    $slotSource = Join-Path $PSScriptRoot 'aji-slot.ps1'
-    $slotTarget = Join-Path $InstallDir 'aji-slot.ps1'
-    if ((Test-Path -LiteralPath $slotSource) -and ($slotSource -ne $slotTarget)) {
-        Copy-Item -LiteralPath $slotSource -Destination $slotTarget -Force
-        Write-Ok "slot switcher: $slotTarget"
+    foreach ($helper in @('aji-slot.ps1', 'uninstall.ps1')) {
+        $source = Join-Path $PSScriptRoot $helper
+        $target = Join-Path $InstallDir $helper
+        if ((Test-Path -LiteralPath $source) -and ($source -ne $target)) {
+            Copy-Item -LiteralPath $source -Destination $target -Force
+            Write-Ok "$helper -> $target"
+        }
     }
 }
 
@@ -662,5 +664,5 @@ Write-Host "    & '$InstallDir\aji-slot.ps1' 1003   # Performance"
 Write-Host "    & '$InstallDir\aji-slot.ps1' 0      # Off (bypass)"
 Write-Host ""
 Write-Host "  After a Nuvio update: nothing to do. The shim is version-independent." -ForegroundColor White
-Write-Host "  To remove: .\install.ps1 -Uninstall" -ForegroundColor White
+Write-Host "  To remove: & '$InstallDir\uninstall.ps1'" -ForegroundColor White
 Write-Host ""
