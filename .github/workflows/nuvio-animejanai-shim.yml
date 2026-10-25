@@ -2,7 +2,7 @@ name: Build Nuvio AnimeJaNai shim
 
 run-name: libmpv-2.dll shim
 
-# Builds tools/nuvio-animejanai/src/mpv_shim.c into a drop-in libmpv-2.dll and
+# Builds nuvio-animejanai/src/mpv_shim.c into a drop-in libmpv-2.dll and
 # publishes it as a public release asset, so the installer can download it
 # anonymously -- Actions artifacts require a GitHub login.
 #
@@ -17,7 +17,7 @@ on:
     branches:
       - Dev
     paths:
-      - "tools/nuvio-animejanai/src/**"
+      - "nuvio-animejanai/src/**"
       - ".github/workflows/nuvio-animejanai-shim.yml"
 
 permissions:
@@ -46,7 +46,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $out = Join-Path $env:RUNNER_TEMP 'shim'
           New-Item -ItemType Directory -Force $out | Out-Null
-          Push-Location 'tools\nuvio-animejanai\src'
+          Push-Location 'nuvio-animejanai\src'
           try {
             & cl.exe /nologo /LD /O2 /W3 /D_CRT_SECURE_NO_WARNINGS mpv_shim.c `
               /link /OUT:"$out\libmpv-2.dll" user32.lib
@@ -101,7 +101,7 @@ jobs:
           tag_name: nuvio-animejanai-shim-v1
           name: Nuvio AnimeJaNai shim (libmpv-2.dll)
           body: |
-            `libmpv-2.dll` shim used by the [Nuvio AnimeJaNai installer](https://github.com/anh-chu/NuvioDesktop/tree/Dev/tools/nuvio-animejanai).
+            `libmpv-2.dll` shim used by the [Nuvio AnimeJaNai installer](https://github.com/anh-chu/NuvioDesktop/tree/Dev/nuvio-animejanai).
 
             It forwards the 13 libmpv entry points Nuvio's player bridge uses and
             rewrites `config=no` into `config-dir=$NUVIO_MPV_CONFIG_DIR` +
