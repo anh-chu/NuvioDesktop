@@ -18,6 +18,14 @@
 
 </div>
 
+> **Fork note — AnimeJaNai + custom mpv config PoC.** This fork contains a
+> self-contained, no-admin integration in
+> [`nuvio-animejanai/`](nuvio-animejanai/README.md): AnimeJaNai 3.8.0 TensorRT
+> upscaling inside Nuvio's embedded player, plus working `mpv.conf`, Lua scripts
+> and shaders. It is a user-side proof of concept built on the existing
+> `NUVIO_LIBMPV_PATH` hook, not an upstream feature (#738 tracks native
+> support); everything else below is upstream Nuvio.
+
 ## ⚠️ Alpha Software - Slow Development - Testers Only
 
 Nuvio Desktop is currently in alpha and is intended only for testers. It is under development and is not suitable for daily use.

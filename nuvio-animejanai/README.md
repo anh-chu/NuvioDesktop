@@ -20,7 +20,7 @@ Nuvio release.
 | --- | --- |
 | OS | Windows 10/11, x64 |
 | GPU | NVIDIA RTX (TensorRT). Other GPUs are not covered by this installer. |
-| App | Nuvio Desktop 0.1.27-alpha or newer (verified on 0.1.27 and 0.1.32) |
+| App | Nuvio Desktop 0.1.27-alpha or newer (tested in-app on 0.1.27; 0.1.32 checked against its source) |
 | Disk | ~1.6 GB, of which ~0.8 GB is a download cache that re-runs reuse (safe to delete) |
 | Network | ~600 MB download on first install |
 
