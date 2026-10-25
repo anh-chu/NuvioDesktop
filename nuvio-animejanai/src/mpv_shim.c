@@ -10,8 +10,8 @@
  *
  * This shim is a drop-in libmpv replacement that Nuvio loads through its
  * existing NUVIO_LIBMPV_PATH environment variable. It forwards the 13 libmpv
- * entry points the bridge uses to the real (AnimeJaNai) libmpv, and rewrites
- * one call on the way through:
+ * entry points the bridge uses to the real (AnimeJaNai) libmpv, plus a few
+ * forward-compatibility exports, and rewrites one call on the way through:
  *
  *     mpv_set_option_string(mpv, "config", "no")
  *         -> mpv_set_option_string(mpv, "config-dir", $NUVIO_MPV_CONFIG_DIR)
@@ -58,6 +58,18 @@ typedef void (*shim_free_fn)(void *);
 typedef shim_mpv_event *(*shim_wait_event_fn)(mpv_handle *, double);
 typedef void (*shim_wakeup_fn)(mpv_handle *);
 
+/* Not used by Nuvio today. Exported so that a future bridge which asks libmpv
+ * for one of them still loads; each is resolved optionally and reports a
+ * failure instead of taking the process down if the real library lacks it. */
+typedef char *(*shim_get_property_string_fn)(mpv_handle *, const char *);
+typedef int (*shim_command_string_fn)(mpv_handle *, const char *);
+typedef unsigned long (*shim_client_api_version_fn)(void);
+typedef int (*shim_observe_property_fn)(mpv_handle *, unsigned long long, const char *, int);
+typedef int (*shim_unobserve_property_fn)(mpv_handle *, unsigned long long);
+typedef int (*shim_request_log_messages_fn)(mpv_handle *, const char *);
+typedef void (*shim_set_wakeup_callback_fn)(mpv_handle *, void (*)(void *), void *);
+typedef void (*shim_free_node_contents_fn)(void *);
+
 static INIT_ONCE g_once = INIT_ONCE_STATIC_INIT;
 static HMODULE g_self;
 static HMODULE g_real;
@@ -76,6 +88,15 @@ static shim_error_string_fn p_error_string;
 static shim_free_fn p_free;
 static shim_wait_event_fn p_wait_event;
 static shim_wakeup_fn p_wakeup;
+
+static shim_get_property_string_fn p_get_property_string;
+static shim_command_string_fn p_command_string;
+static shim_client_api_version_fn p_client_api_version;
+static shim_observe_property_fn p_observe_property;
+static shim_unobserve_property_fn p_unobserve_property;
+static shim_request_log_messages_fn p_request_log_messages;
+static shim_set_wakeup_callback_fn p_set_wakeup_callback;
+static shim_free_node_contents_fn p_free_node_contents;
 
 /* Nuvio drives one mpv handle at a time (guarded by its own mutex), so the
  * "did this handle already go through the config path" bookkeeping can be a
@@ -169,6 +190,25 @@ static BOOL WINAPI shim_resolve(PINIT_ONCE once, PVOID parameter, PVOID *context
     SHIM_RESOLVE(p_wakeup, "mpv_wakeup");
 
 #undef SHIM_RESOLVE
+
+#define SHIM_RESOLVE_OPTIONAL(field, symbol)                                      \
+    do {                                                                         \
+        *(FARPROC *)&field = GetProcAddress(g_real, symbol);                      \
+        if (!field) {                                                            \
+            shim_log(L"optional export missing: %S", symbol);                     \
+        }                                                                        \
+    } while (0)
+
+    SHIM_RESOLVE_OPTIONAL(p_get_property_string, "mpv_get_property_string");
+    SHIM_RESOLVE_OPTIONAL(p_command_string, "mpv_command_string");
+    SHIM_RESOLVE_OPTIONAL(p_client_api_version, "mpv_client_api_version");
+    SHIM_RESOLVE_OPTIONAL(p_observe_property, "mpv_observe_property");
+    SHIM_RESOLVE_OPTIONAL(p_unobserve_property, "mpv_unobserve_property");
+    SHIM_RESOLVE_OPTIONAL(p_request_log_messages, "mpv_request_log_messages");
+    SHIM_RESOLVE_OPTIONAL(p_set_wakeup_callback, "mpv_set_wakeup_callback");
+    SHIM_RESOLVE_OPTIONAL(p_free_node_contents, "mpv_free_node_contents");
+
+#undef SHIM_RESOLVE_OPTIONAL
 
     if (!ok) {
         shim_log(L"%s does not look like libmpv; refusing to continue", path);
@@ -402,5 +442,85 @@ __declspec(dllexport) void mpv_wakeup(mpv_handle *handle)
     shim_ensure_resolved();
     if (p_wakeup) {
         p_wakeup(handle);
+    }
+}
+
+/* -------------------------------------------------------------------------
+ * Forward-compatibility exports.
+ *
+ * Nuvio 0.1.27 .. 0.1.32 load exactly the 13 symbols above. These extra ones
+ * cover the obvious next candidates so a future bridge that starts using them
+ * still finds a working libmpv behind the shim, instead of failing to load.
+ * ---------------------------------------------------------------------- */
+
+__declspec(dllexport) char *mpv_get_property_string(mpv_handle *handle, const char *name)
+{
+    shim_ensure_resolved();
+    if (!p_get_property_string) {
+        return NULL;
+    }
+    return p_get_property_string(handle, name);
+}
+
+__declspec(dllexport) int mpv_command_string(mpv_handle *handle, const char *args)
+{
+    shim_ensure_resolved();
+    if (!p_command_string) {
+        return SHIM_MPV_ERROR_LOADING_FAILED;
+    }
+    return p_command_string(handle, args);
+}
+
+__declspec(dllexport) unsigned long mpv_client_api_version(void)
+{
+    shim_ensure_resolved();
+    if (!p_client_api_version) {
+        return 0;
+    }
+    return p_client_api_version();
+}
+
+__declspec(dllexport) int mpv_observe_property(mpv_handle *handle, unsigned long long reply_userdata,
+                                               const char *name, int format)
+{
+    shim_ensure_resolved();
+    if (!p_observe_property) {
+        return SHIM_MPV_ERROR_LOADING_FAILED;
+    }
+    return p_observe_property(handle, reply_userdata, name, format);
+}
+
+__declspec(dllexport) int mpv_unobserve_property(mpv_handle *handle, unsigned long long reply_userdata)
+{
+    shim_ensure_resolved();
+    if (!p_unobserve_property) {
+        return SHIM_MPV_ERROR_LOADING_FAILED;
+    }
+    return p_unobserve_property(handle, reply_userdata);
+}
+
+__declspec(dllexport) int mpv_request_log_messages(mpv_handle *handle, const char *min_level)
+{
+    shim_ensure_resolved();
+    if (!p_request_log_messages) {
+        return SHIM_MPV_ERROR_LOADING_FAILED;
+    }
+    return p_request_log_messages(handle, min_level);
+}
+
+__declspec(dllexport) void mpv_set_wakeup_callback(mpv_handle *handle,
+                                                   void (*callback)(void *), void *context)
+{
+    shim_ensure_resolved();
+    if (p_set_wakeup_callback) {
+        p_set_wakeup_callback(handle, callback, context);
+    }
+}
+
+__declspec(dllexport) void mpv_free_node_contents(void *node)
+{
+    shim_ensure_resolved();
+    if (p_free_node_contents) {
+        p_free_node_contents(node);
     }
 }

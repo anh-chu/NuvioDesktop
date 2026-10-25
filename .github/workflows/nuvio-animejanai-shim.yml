@@ -64,7 +64,12 @@ jobs:
             'mpv_set_option', 'mpv_set_option_string',
             'mpv_set_property', 'mpv_set_property_string', 'mpv_get_property',
             'mpv_command', 'mpv_error_string', 'mpv_free',
-            'mpv_wait_event', 'mpv_wakeup'
+            'mpv_wait_event', 'mpv_wakeup',
+            # Forward-compatibility surface (not used by Nuvio today).
+            'mpv_get_property_string', 'mpv_command_string', 'mpv_client_api_version',
+            'mpv_observe_property', 'mpv_unobserve_property',
+            'mpv_request_log_messages', 'mpv_set_wakeup_callback',
+            'mpv_free_node_contents'
           )
           $dumpbin = (Get-Command dumpbin.exe -ErrorAction Stop).Source
           $exports = & $dumpbin /nologo /exports $dll | Out-String
@@ -103,8 +108,9 @@ jobs:
           body: |
             `libmpv-2.dll` shim used by the [Nuvio AnimeJaNai installer](https://github.com/anh-chu/NuvioDesktop/tree/Dev/nuvio-animejanai).
 
-            It forwards the 13 libmpv entry points Nuvio's player bridge uses and
-            rewrites `config=no` into `config-dir=$NUVIO_MPV_CONFIG_DIR` +
+            It forwards the libmpv entry points Nuvio's player bridge uses
+            (plus a few forward-compatibility exports) and rewrites
+            `config=no` into `config-dir=$NUVIO_MPV_CONFIG_DIR` +
             `config=yes`. With `NUVIO_MPV_CONFIG_DIR` unset it is a pass-through,
             so stock behaviour is unchanged.
 
