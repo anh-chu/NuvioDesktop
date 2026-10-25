@@ -96,6 +96,12 @@ automatically. Later plays reuse the cached engine and start instantly.
 AnimeJaNai's own status file is
 `%LOCALAPPDATA%\NuvioAnimeJaNai\animejanai\currentanimejanai.log`.
 
+Verified end-to-end on Nuvio 0.1.27 with a 1920x1080 23.976 fps episode: the
+Balanced engine built in ~25 s, the filter reported
+`Configured slot 1002: 1920x1080 -> 3840x2160`, and switching to slot `0` and
+back to `1002` from another shell re-applied the cached engine without a
+rebuild.
+
 If the log lists `[upscale-on]` but no `[animejanai]` lines, see
 [Troubleshooting](#troubleshooting).
 
