@@ -12,6 +12,9 @@ embedded player, and to keep it working after Nuvio updates.
 re-apply — the integration does not patch Nuvio and does not depend on any
 Nuvio release.
 
+> **Canonical standalone repo:** https://github.com/anh-chu/nuvio-animejanai
+> — this fork folder is the development copy used for the upstream discussion.
+
 ---
 
 ## Requirements
